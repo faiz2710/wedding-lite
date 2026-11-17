@@ -77,7 +77,7 @@ Saat `DATABASE=false`:
 
 - RSVP dan ucapan tidak disimpan; setiap kiriman hanya dikirim ke email `MAIL_TO`.
 - Karena email adalah satu-satunya rekaman, kegagalan SMTP membuat request gagal (`502`) supaya tamu bisa mencoba lagi.
-- Daftar ucapan di halaman hanya berasal dari memori instance server yang sedang hidup — hilang saat restart dan tidak dibagi antar instance (mis. di Vercel).
+- Daftar ucapan di halaman selalu kosong — tidak ada penyimpanan di memori sama sekali, jadi ucapan orang lain tidak pernah muncul.
 - Set `DATABASE=true` untuk penyimpanan permanen. Saat database aktif, kegagalan SMTP hanya dicatat di log (`[mail]`) dan data tetap tersimpan.
 
 ---

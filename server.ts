@@ -276,12 +276,10 @@ function validateWish(body: Record<string, unknown>): string[] {
     return errors;
 }
 
-// Mode tanpa database: ucapan hanya hidup di memori instance (hilang saat restart).
-const memoryWishes: Array<{ id: number; name: string; message: string; created_at: Date }> = [];
-
 async function latestWishes() {
+    // Tanpa database tidak ada penyimpanan sama sekali; daftar ucapan selalu kosong.
     if (!sql) {
-        return memoryWishes.slice(0, 30);
+        return [];
     }
 
     return sql`
@@ -465,11 +463,6 @@ const server = Bun.serve({
                         { ok: false, errors: ["Gagal mengirim ucapan via email. Coba lagi."] },
                         502
                     );
-                }
-
-                if (!sql) {
-                    memoryWishes.unshift({ id: Date.now(), name, message, created_at: new Date() });
-                    memoryWishes.splice(30);
                 }
 
                 return json({
