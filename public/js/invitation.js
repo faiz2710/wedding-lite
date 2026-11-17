@@ -20,6 +20,39 @@
 
     var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+    var guestName = "";
+    var csrfToken = "";
+    var csrfRequest = null;
+
+    function getCsrfToken() {
+        if (csrfToken) {
+            return Promise.resolve(csrfToken);
+        }
+
+        if (!csrfRequest) {
+            csrfRequest = fetch("/api/csrf", { credentials: "same-origin" })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error("csrf");
+                    }
+
+                    return response.json();
+                })
+                .then(function (data) {
+                    csrfRequest = null;
+                    csrfToken = data.token || "";
+
+                    return csrfToken;
+                })
+                .catch(function (error) {
+                    csrfRequest = null;
+                    throw error;
+                });
+        }
+
+        return csrfRequest;
+    }
+
     function safe(fn) {
         try {
             fn();
@@ -37,7 +70,8 @@
 
     function setupGuest() {
         var params = new URLSearchParams(window.location.search);
-        var guestName = (params.get("to") || "").trim().slice(0, 100);
+
+        guestName = (params.get("to") || "").trim().slice(0, 100);
 
         if (!guestName) {
             return;
@@ -48,6 +82,14 @@
         if (openingGuest) {
             openingGuest.textContent = guestName;
         }
+
+        ["#name", "#wishesName"].forEach(function (selector) {
+            var input = $(selector);
+
+            if (input && !input.value) {
+                input.value = guestName;
+            }
+        });
     }
 
     /* -----------------------------------------------------------------
@@ -626,8 +668,179 @@
     }
 
     /* -----------------------------------------------------------------
-       8. FORM (RSVP & WISHES) — stepper, lock kuota, status kirim
-       Nama field, endpoint, method, dan @csrf tidak disentuh.
+       7d. DAFTAR UCAPAN (API) — 30 terbaru di atas
+       ----------------------------------------------------------------- */
+
+    function formatWishDate(iso) {
+        var date = new Date(iso);
+
+        if (isNaN(date.getTime())) {
+            return "";
+        }
+
+        return date.toLocaleDateString("id-ID", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+        });
+    }
+
+    function renderWishes(wishes) {
+        var list = $("#wishesList");
+
+        if (!list) {
+            return;
+        }
+
+        var empty = $("#wishesEmpty");
+        var items = Array.isArray(wishes) ? wishes.slice(0, 30) : [];
+
+        $$(".wish-card", list).forEach(function (card) {
+            card.remove();
+        });
+
+        if (empty) {
+            empty.hidden = items.length > 0;
+        }
+
+        items.forEach(function (wish) {
+            var article = document.createElement("article");
+            article.className = "wish-card is-visible";
+
+            var head = document.createElement("header");
+            head.className = "wish-card__head";
+
+            var name = document.createElement("p");
+            name.className = "wish-card__name";
+            name.textContent = wish.name;
+
+            var time = document.createElement("time");
+            time.className = "wish-card__date";
+            time.dateTime = wish.created_at;
+            time.textContent = formatWishDate(wish.created_at);
+
+            var message = document.createElement("p");
+            message.className = "wish-card__message";
+            message.textContent = wish.message;
+
+            head.appendChild(name);
+            head.appendChild(time);
+            article.appendChild(head);
+            article.appendChild(message);
+            list.appendChild(article);
+        });
+    }
+
+    function loadWishes() {
+        return fetch("/api/wishes", { credentials: "same-origin" })
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error("wishes");
+                }
+
+                return response.json();
+            })
+            .then(function (data) {
+                renderWishes(data.wishes);
+            })
+            .catch(function (error) {
+                if (window.console) {
+                    console.error("[invitation]", error);
+                }
+            });
+    }
+
+    function collectErrors(kind, form) {
+        var errors = [];
+        var name;
+        var message;
+
+        if (kind === "wishes") {
+            name = form.elements["wishes[name]"].value.trim();
+            message = form.elements["wishes[message]"].value.trim();
+
+            if (name === "") {
+                errors.push("Nama wajib diisi.");
+            } else if (name.length > 100) {
+                errors.push("Nama maksimal 100 karakter.");
+            }
+
+            if (message === "") {
+                errors.push("Ucapan tidak boleh kosong.");
+            } else if (message.length > 500) {
+                errors.push("Ucapan maksimal 500 karakter.");
+            }
+
+            return errors;
+        }
+
+        var attendance = form.elements.attendance.value;
+        var guests = parseInt(form.elements.guests.value, 10);
+        name = form.elements.name.value.trim();
+        message = form.elements.message.value.trim();
+
+        if (name === "") {
+            errors.push("Nama tamu wajib diisi.");
+        } else if (name.length > 100) {
+            errors.push("Nama maksimal 100 karakter.");
+        }
+
+        if (attendance === "" || (attendance !== "hadir" && attendance !== "tidak_hadir")) {
+            errors.push("Silakan pilih konfirmasi kehadiran.");
+        }
+
+        if (isNaN(guests)) {
+            errors.push("Jumlah tamu harus berupa angka.");
+        } else if (guests < 1) {
+            errors.push("Jumlah tamu minimal 1 orang.");
+        } else if (guests > 10) {
+            errors.push("Jumlah tamu maksimal 10 orang.");
+        }
+
+        if (message !== "" && message.length > 1000) {
+            errors.push("Pesan maksimal 1000 karakter.");
+        }
+
+        return errors;
+    }
+
+    function showFormAlert(kind, status, messages) {
+        var alert = $('.form-alert--' + status + '[data-feedback="' + kind + '"]');
+
+        $$('.form-alert[data-feedback="' + kind + '"]').forEach(function (element) {
+            element.hidden = true;
+        });
+
+        if (!alert) {
+            return;
+        }
+
+        if (status === "success") {
+            var text = $(".form-alert__message", alert);
+
+            if (text) {
+                text.textContent = messages[0];
+            }
+        } else {
+            var list = $("ul", alert);
+
+            if (list) {
+                list.textContent = "";
+                messages.forEach(function (msg) {
+                    var item = document.createElement("li");
+                    item.textContent = msg;
+                    list.appendChild(item);
+                });
+            }
+        }
+
+        alert.hidden = false;
+        alert.scrollIntoView({ block: "center" });
+        alert.focus({ preventScroll: true });
+    }
+
+    /* -----------------------------------------------------------------
+       8. FORM (RSVP & WISHES) — stepper, validasi, kirim ke API
        ----------------------------------------------------------------- */
 
     function setupForms() {
@@ -689,10 +902,12 @@
             syncAttendance();
         }
 
-        // Umpan balik saat mengirim (untuk kedua form)
+        // Kirim form ke API (validasi ulang di server, CSRF via header).
         $$(".invite-form").forEach(function (form) {
+            var kind = form.id === "wishesForm" ? "wishes" : "rsvp";
             var submit = form.querySelector(".button--submit");
             var label = submit ? submit.querySelector(".button__label") : null;
+            var endpoint = kind === "wishes" ? "/api/wishes" : "/api/rsvp";
 
             if (!submit) {
                 return;
@@ -700,57 +915,108 @@
 
             var originalLabel = submit.getAttribute("data-label") || (label ? label.textContent : "");
 
-            form.addEventListener("submit", function () {
-                if (!form.checkValidity()) {
+            function setLoading(loading) {
+                submit.classList.toggle("is-loading", loading);
+
+                if (loading) {
+                    submit.setAttribute("aria-busy", "true");
+                } else {
+                    submit.removeAttribute("aria-busy");
+                }
+
+                if (label) {
+                    label.textContent = loading ? "Mengirim..." : originalLabel;
+                }
+            }
+
+            form.addEventListener("submit", function (event) {
+                event.preventDefault();
+
+                if (submit.classList.contains("is-loading")) {
                     return;
                 }
 
-                submit.classList.add("is-loading");
-                submit.setAttribute("aria-busy", "true");
+                var errors = collectErrors(kind, form);
 
-                if (label) {
-                    label.textContent = "Mengirim...";
+                if (errors.length) {
+                    showFormAlert(kind, "error", errors);
+                    return;
                 }
-            });
 
-            // Tombol "Kembali" di browser (bfcache) tidak boleh
-            // menyisakan status loading.
-            window.addEventListener("pageshow", function (event) {
-                if (event.persisted) {
-                    submit.classList.remove("is-loading");
-                    submit.removeAttribute("aria-busy");
-
-                    if (label) {
-                        label.textContent = originalLabel;
+                var payload = kind === "wishes"
+                    ? {
+                        name: form.elements["wishes[name]"].value.trim(),
+                        message: form.elements["wishes[message]"].value.trim()
                     }
-                }
+                    : {
+                        name: form.elements.name.value.trim(),
+                        attendance: form.elements.attendance.value,
+                        guests: parseInt(form.elements.guests.value, 10),
+                        message: form.elements.message.value.trim()
+                    };
+
+                setLoading(true);
+
+                getCsrfToken()
+                    .then(function (token) {
+                        return fetch(endpoint, {
+                            method: "POST",
+                            credentials: "same-origin",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "X-CSRF-Token": token
+                            },
+                            body: JSON.stringify(payload)
+                        });
+                    })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { ok: response.ok, status: response.status, data: data };
+                        });
+                    })
+                    .then(function (result) {
+                        if (!result.ok || !result.data.ok) {
+                            if (result.status === 419) {
+                                csrfToken = "";
+                            }
+
+                            throw {
+                                messages: result.data.errors || [result.data.message || "Gagal mengirim. Coba lagi."]
+                            };
+                        }
+
+                        return result.data;
+                    })
+                    .then(function (data) {
+                        setLoading(false);
+                        form.reset();
+
+                        var nameInput = form.elements[kind === "wishes" ? "wishes[name]" : "name"];
+
+                        if (nameInput && guestName) {
+                            nameInput.value = guestName;
+                        }
+
+                        if (kind === "rsvp") {
+                            syncAttendance();
+                        } else {
+                            renderWishes(data.wishes);
+                        }
+
+                        showFormAlert(kind, "success", [data.message]);
+                    })
+                    .catch(function (error) {
+                        setLoading(false);
+                        showFormAlert(
+                            kind,
+                            "error",
+                            error && error.messages
+                                ? error.messages
+                                : ["Gagal mengirim. Periksa koneksi lalu coba lagi."]
+                        );
+                    });
             });
         });
-    }
-
-    /* -----------------------------------------------------------------
-       9. FEEDBACK SETELAH KIRIM — bawa tamu ke hasilnya
-       ----------------------------------------------------------------- */
-
-function setupFormFeedback() {
-        var pageState = document.body.getAttribute("data-rsvp-state");
-
-        if (pageState !== "rsvp" && pageState !== "wishes") {
-            return;
-        }
-
-        var feedback = $('[data-feedback="' + pageState + '"]');
-        var target = feedback || document.getElementById(pageState);
-
-        if (!target) {
-            return;
-        }
-
-        target.scrollIntoView({ block: feedback ? "center" : "start" });
-
-        if (feedback) {
-            feedback.focus({ preventScroll: true });
-        }
     }
 
     /* -----------------------------------------------------------------
@@ -761,6 +1027,7 @@ function setupFormFeedback() {
         safe(setupGuest);
         safe(setupMusic);
         safe(setupOpening);
+        safe(loadWishes);
         safe(setupReveal);
         safe(setupAnchors);
         safe(setupDockActive);
@@ -769,7 +1036,6 @@ function setupFormFeedback() {
         safe(setupCopy);
         safe(setupSlideshow);
         safe(setupForms);
-        safe(setupFormFeedback);
     }
 
     if (document.readyState === "loading") {
