@@ -1,0 +1,13 @@
+services:
+  wedding:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./database:/app/database
+    deploy:
+      resources:
+        limits:
+          cpus: '0.80'
+          memory: 128M

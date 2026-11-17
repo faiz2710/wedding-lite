@@ -1,0 +1,24 @@
+{
+    # Global options
+    frankenphp
+    order php_server before file_server
+}
+
+:80 {
+    root * /app/public
+
+    # Enable compression (Zstandard & Gzip)
+    encode zstd gzip
+
+    # Aggressive caching for static assets
+    @static {
+        path /css/* /js/* /images/* /audio/* /favicon.ico /robots.txt
+    }
+    header @static Cache-Control "public, max-age=31536000, immutable"
+
+    # Execute PHP files
+    php_server
+
+    # Fallback to index.php
+    try_files {path} {path}/ /index.php?{query}
+}
